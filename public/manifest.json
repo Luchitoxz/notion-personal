@@ -1,0 +1,20 @@
+{
+  "name": "Notion Personal",
+  "short_name": "Notion",
+  "description": "Tu espacio personal de notas, proyectos, bases de datos y colaboración",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#191919",
+  "theme_color": "#191919",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

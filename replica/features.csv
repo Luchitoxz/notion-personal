@@ -1,0 +1,38 @@
+feature,area,priority,original,clone,notes
+Nested page tree in sidebar,navigation,must,yes,yes,Support creating sub-pages under any parent page
+Rich block editor with live conversion,editor,must,yes,yes,p h1 h2 h3 bullet number todo quote callout code divider toggle
+Slash command menu (/),editor,must,yes,yes,Keyboard accessible dropdown to morph or add blocks
+Interactive checklist (todo),editor,must,yes,yes,Checkable box with strike-through and completion state
+Code blocks with syntax styling and copy,editor,must,yes,yes,Pre-formatted code box with quick copy button
+Callout blocks with custom icon and alert bg,editor,must,yes,yes,Visually distinct block for highlights and tips
+Page header with icon and cover banner,canvas,must,yes,yes,Custom emoji icon and gradient or image cover
+Quick Switcher and Global Search (Ctrl+K),search,must,yes,yes,Instant search across titles and block content
+Local-first persistence (auto-save),storage,must,yes,yes,Zero data loss instant auto-save to browser storage
+Light and Dark theme modes,appearance,must,yes,yes,Crisp Notion-accurate light (#FFFFFF) and dark (#191919)
+Collapsible sidebar toggle,navigation,must,yes,yes,Hide sidebar for distraction-free writing
+Trash and page recovery,management,must,yes,yes,Soft-delete pages with restore or permanent purge
+Floating formatting toolbar on text select,editor,should,yes,yes,Bold italic underline strikethrough code
+Typography styles (Default Sans Serif Mono),appearance,should,yes,yes,Switch page font styling
+Export to Markdown and JSON,portability,should,yes,yes,Download notes for portability
+Import from Markdown and JSON,portability,should,yes,yes,Restore or import external notes
+Favorites / Starred section in sidebar,navigation,should,yes,yes,Pin key pages to top of sidebar
+Embedded Kanban task board,database,should,yes,yes,Columns for To Do In Progress and Done
+Drag-and-drop block reordering,editor,could,yes,yes,Block handle drag interactions
+Word counter and reading time,canvas,could,yes,yes,Document stats counter in top options menu
+Preset starter templates,onboarding,could,yes,yes,Personal Dashboard Daily Notes Reading List Project Tracker
+AI Writing & Summarization Assistant (Notion AI),ai,must,yes,yes,Gemini OpenAI Ollama and demo mode for drafting translating and summarizing
+Real-time multiplayer collaboration,collaboration,must,yes,yes,WebRTC P2P mesh data channels and BroadcastChannel with room codes
+Excel-style spreadsheet tables with SUM and CSV export,database,must,yes,yes,Editable cells row col insertion header row and CSV export
+PDF embedding and local uploader,media,must,yes,yes,Interactive PDF viewer download button and drag-drop upload
+Image upload and lightbox viewer,media,must,yes,yes,Base64 local drop and URL with captions and full-width toggle
+Live Markdown typing shortcuts,editor,must,yes,yes,Inline triggers for headings todo lists quotes dividers and code
+Table of Contents block (/toc),navigation,should,yes,yes,Auto-discovering H1-H3 list with smooth scrolling navigation
+LaTeX mathematical equations (/math),editor,should,yes,yes,KaTeX formula rendering with LaTeX editor and presets
+Interactive diagrams and flowcharts (/mermaid),editor,should,yes,yes,Mermaid.js SVG rendering for flowcharts sequence and architecture
+Monthly interactive event calendar (/calendar),database,should,yes,yes,Grid view day-level event scheduling and color tags
+Embedded video player (/video),media,should,yes,yes,Responsive YouTube Vimeo and MP4 player
+Multi-column layout (/columns),layout,should,yes,yes,2-column and 3-column layouts with independent nested blocks
+Internal page links and mentions (/page-link),navigation,should,yes,yes,Wiki-style internal hyperlinks with auto-synced titles
+Reusable template buttons (/template-button),automation,could,yes,yes,Configurable button that spawns predefined block structures
+Page locking and read-only protection,security,should,yes,yes,Top bar lock toggle disabling accidental edits and mutations
+Version history and snapshots restore,management,should,yes,yes,Timestamped page snapshots with 1-click restore modal
