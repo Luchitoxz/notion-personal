@@ -92,20 +92,34 @@ export const Sidebar: React.FC = () => {
             onClick={() => setIsShareOpen(true)}
             className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md transition-colors ${
               isCollaborating
-                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-medium'
+                ? collaborators.length > 1
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-medium'
+                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium'
                 : 'hover:bg-[#efeeea] dark:hover:bg-[#282828] text-neutral-600 dark:text-neutral-300'
             }`}
           >
             <div className="flex items-center gap-2">
               <Users size={15} />
-              <span>{isCollaborating ? 'En sala compartida' : 'Invitar a un amigo'}</span>
+              <span>
+                {isCollaborating
+                  ? collaborators.length > 1
+                    ? 'Juntos en vivo'
+                    : 'Esperando amigo...'
+                  : 'Invitar a un amigo'}
+              </span>
             </div>
             {isCollaborating ? (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-200 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold">
-                {collaborators.length} en vivo
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  collaborators.length > 1
+                    ? 'bg-emerald-200 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-amber-200 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+                }`}
+              >
+                {collaborators.length} en línea
               </span>
             ) : (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">P2P</span>
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">En vivo</span>
             )}
           </button>
 

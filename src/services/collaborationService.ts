@@ -1,8 +1,8 @@
-import { Peer } from 'peerjs';
+import mqtt, { type MqttClient } from 'mqtt';
 import type { Page, Collaborator } from '../types';
 
 export interface CollaborationMessage {
-  type: 'INIT_SYNC' | 'PAGES_UPDATE' | 'USER_JOIN' | 'USER_LEAVE' | 'PING';
+  type: 'REQUEST_SYNC' | 'FULL_SYNC' | 'PAGES_UPDATE' | 'USER_JOIN' | 'USER_LEAVE' | 'HEARTBEAT';
   pages?: Page[];
   sender: Collaborator;
   timestamp: number;
@@ -11,16 +11,23 @@ export interface CollaborationMessage {
 export type SyncCallback = (pages: Page[], sender: Collaborator) => void;
 export type CollaboratorsCallback = (collaborators: Collaborator[]) => void;
 
+const BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+];
+
 class CollaborationService {
-  private peer: Peer | null = null;
-  private connections: Map<string, any> = new Map();
+  private client: MqttClient | null = null;
   private broadcastChannel: BroadcastChannel | null = null;
   private onSyncCallback: SyncCallback | null = null;
   private onCollaboratorsCallback: CollaboratorsCallback | null = null;
   private localUser: Collaborator | null = null;
   private activeCollaborators: Map<string, Collaborator> = new Map();
   private roomId: string | null = null;
-  private isHost: boolean = false;
+  private heartbeatInterval: any = null;
+  private cleanupInterval: any = null;
+  private latestPages: Page[] = [];
+  private currentBrokerIndex = 0;
 
   constructor() {
     try {
@@ -33,15 +40,20 @@ class CollaborationService {
     }
   }
 
+  public setLatestPages(pages: Page[]) {
+    this.latestPages = pages;
+  }
+
   public init(
     roomId: string,
-    isHost: boolean,
+    _isHost: boolean,
     user: Collaborator,
     onSync: SyncCallback,
     onCollaborators: CollaboratorsCallback
   ) {
-    this.roomId = roomId;
-    this.isHost = isHost;
+    this.leave();
+
+    this.roomId = roomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     this.localUser = user;
     this.onSyncCallback = onSync;
     this.onCollaboratorsCallback = onCollaborators;
@@ -50,81 +62,119 @@ class CollaborationService {
     this.activeCollaborators.set(user.id, user);
     this.notifyCollaborators();
 
-    // Clean up existing peer if any
-    if (this.peer) {
-      this.peer.destroy();
-      this.peer = null;
-    }
+    this.connectMqtt();
+    this.startHeartbeat();
+    this.startCleanupTimer();
 
-    // Standard sanitized PeerJS ID
-    const sanitizedRoomId = roomId.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-    const peerId = isHost ? `notion-host-${sanitizedRoomId}` : `notion-peer-${sanitizedRoomId}-${user.id.slice(0, 5)}`;
-
-    try {
-      this.peer = new Peer(peerId, {
-        debug: 1,
-      });
-
-      this.peer.on('open', () => {
-        console.log(`[P2P] Peer conectado con ID: ${peerId}`);
-
-        if (!isHost) {
-          // As guest, connect to the host
-          const hostPeerId = `notion-host-${sanitizedRoomId}`;
-          this.connectToPeer(hostPeerId);
-        }
-      });
-
-      this.peer.on('connection', (conn) => {
-        this.setupConnection(conn);
-      });
-
-      this.peer.on('error', (err) => {
-        console.warn('[P2P] PeerJS notice:', err);
-      });
-    } catch (err) {
-      console.error('[P2P] Error initializing PeerJS:', err);
-    }
-
-    // Announce join via BroadcastChannel for multi-tab testing
-    this.broadcastMessage({
+    // Broadcast on local channel too
+    this.broadcastLocal({
       type: 'USER_JOIN',
       sender: user,
       timestamp: Date.now(),
     });
   }
 
-  private connectToPeer(targetPeerId: string) {
-    if (!this.peer) return;
-    const conn = this.peer.connect(targetPeerId);
-    this.setupConnection(conn);
+  private connectMqtt() {
+    const brokerUrl = BROKERS[this.currentBrokerIndex % BROKERS.length];
+    const clientId = `notion_${Math.random().toString(36).slice(2, 10)}`;
+
+    try {
+      this.client = mqtt.connect(brokerUrl, {
+        clientId,
+        clean: true,
+        connectTimeout: 8000,
+        reconnectPeriod: 3000,
+        keepalive: 30,
+      });
+
+      const presenceTopic = `notion_p2p/${this.roomId}/presence`;
+      const syncTopic = `notion_p2p/${this.roomId}/sync`;
+
+      this.client.on('connect', () => {
+        console.log(`[P2P] Conectado al broker de colaboración (${brokerUrl}) en sala: ${this.roomId}`);
+        
+        this.client?.subscribe([presenceTopic, syncTopic], (err) => {
+          if (!err && this.localUser) {
+            // Anunciar entrada inmediatamente
+            this.sendPresence('USER_JOIN');
+
+            // Si somos invitados o acabamos de conectar, pedir el estado actual de las notas
+            this.publishMessage(syncTopic, {
+              type: 'REQUEST_SYNC',
+              sender: this.localUser,
+              timestamp: Date.now(),
+            });
+          }
+        });
+      });
+
+      this.client.on('message', (_topic, payload) => {
+        try {
+          const parsed = JSON.parse(payload.toString()) as CollaborationMessage;
+          this.handleIncomingMessage(parsed);
+        } catch (e) {
+          console.warn('[P2P] Error parseando mensaje entrante:', e);
+        }
+      });
+
+      this.client.on('error', (err) => {
+        console.warn('[P2P] MQTT error:', err);
+        // Fallback to next broker if connection fails
+        this.client?.end(true);
+        this.currentBrokerIndex++;
+        setTimeout(() => {
+          if (this.roomId) this.connectMqtt();
+        }, 2000);
+      });
+    } catch (e) {
+      console.error('[P2P] Error al iniciar conexión MQTT:', e);
+    }
   }
 
-  private setupConnection(conn: any) {
-    conn.on('open', () => {
-      this.connections.set(conn.peer, conn);
+  private startHeartbeat() {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    this.heartbeatInterval = setInterval(() => {
+      this.sendPresence('HEARTBEAT');
+    }, 3000);
+  }
 
-      // Send join announcement
-      if (this.localUser) {
-        conn.send({
-          type: 'USER_JOIN',
-          sender: this.localUser,
-          timestamp: Date.now(),
-        });
+  private startCleanupTimer() {
+    if (this.cleanupInterval) clearInterval(this.cleanupInterval);
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+
+      this.activeCollaborators.forEach((collaborator, id) => {
+        if (id !== this.localUser?.id && now - collaborator.lastActive > 9000) {
+          this.activeCollaborators.delete(id);
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        this.notifyCollaborators();
       }
-    });
+    }, 4000);
+  }
 
-    conn.on('data', (data: any) => {
-      this.handleIncomingMessage(data);
-    });
+  private sendPresence(type: 'USER_JOIN' | 'HEARTBEAT') {
+    if (!this.localUser || !this.roomId) return;
+    this.localUser.lastActive = Date.now();
 
-    conn.on('close', () => {
-      this.connections.delete(conn.peer);
-    });
+    const msg: CollaborationMessage = {
+      type,
+      sender: this.localUser,
+      timestamp: Date.now(),
+    };
+
+    const topic = `notion_p2p/${this.roomId}/presence`;
+    this.publishMessage(topic, msg);
+    this.broadcastLocal(msg);
   }
 
   public broadcastPagesUpdate(pages: Page[]) {
-    if (!this.localUser) return;
+    if (!this.localUser || !this.roomId) return;
+    this.latestPages = pages;
 
     const message: CollaborationMessage = {
       type: 'PAGES_UPDATE',
@@ -133,50 +183,63 @@ class CollaborationService {
       timestamp: Date.now(),
     };
 
-    this.broadcastMessage(message);
+    const topic = `notion_p2p/${this.roomId}/sync`;
+    this.publishMessage(topic, message);
+    this.broadcastLocal(message);
   }
 
-  private broadcastMessage(message: CollaborationMessage) {
-    // 1. Send via WebRTC peer data channels
-    this.connections.forEach((conn) => {
-      if (conn.open) {
-        try {
-          conn.send(message);
-        } catch (e) {
-          console.error('[P2P] Error sending via WebRTC', e);
-        }
+  private publishMessage(topic: string, message: CollaborationMessage) {
+    if (this.client && this.client.connected) {
+      try {
+        this.client.publish(topic, JSON.stringify(message), { qos: 1 });
+      } catch (e) {
+        console.error('[P2P] Error publicando mensaje MQTT:', e);
       }
-    });
+    }
+  }
 
-    // 2. Send via local BroadcastChannel (same machine tabs)
+  private broadcastLocal(message: CollaborationMessage) {
     try {
       this.broadcastChannel?.postMessage(message);
     } catch (e) {
-      // ignore
+      // Ignorar
     }
   }
 
   private handleIncomingMessage(msg: CollaborationMessage) {
-    if (!msg || !msg.type || msg.sender?.id === this.localUser?.id) {
-      return; // Ignore own messages
+    if (!msg || !msg.sender || msg.sender.id === this.localUser?.id) {
+      return; // Ignorar nuestros propios mensajes
     }
 
-    // Register active collaborator
-    if (msg.sender) {
-      this.activeCollaborators.set(msg.sender.id, msg.sender);
-      this.notifyCollaborators();
+    // Registrar o actualizar presencia del colaborador
+    this.activeCollaborators.set(msg.sender.id, {
+      ...msg.sender,
+      lastActive: Date.now(),
+    });
+    this.notifyCollaborators();
+
+    // Si otro usuario se une o solicita sync y tenemos notas, le enviamos una copia completa
+    if ((msg.type === 'REQUEST_SYNC' || msg.type === 'USER_JOIN') && this.latestPages.length > 0) {
+      if (this.localUser && this.roomId) {
+        const syncMsg: CollaborationMessage = {
+          type: 'FULL_SYNC',
+          pages: this.latestPages,
+          sender: this.localUser,
+          timestamp: Date.now(),
+        };
+        const topic = `notion_p2p/${this.roomId}/sync`;
+        this.publishMessage(topic, syncMsg);
+      }
     }
 
-    if (msg.type === 'USER_JOIN' && this.isHost && this.onSyncCallback) {
-      // Host replies with initial state if requested
-    }
-
-    if ((msg.type === 'PAGES_UPDATE' || msg.type === 'INIT_SYNC') && msg.pages) {
+    // Si recibimos una actualización o sincronización completa de páginas
+    if ((msg.type === 'PAGES_UPDATE' || msg.type === 'FULL_SYNC') && msg.pages && msg.pages.length > 0) {
       if (this.onSyncCallback) {
         this.onSyncCallback(msg.pages, msg.sender);
       }
     }
 
+    // Si el colaborador se desconecta voluntariamente
     if (msg.type === 'USER_LEAVE') {
       this.activeCollaborators.delete(msg.sender.id);
       this.notifyCollaborators();
@@ -185,25 +248,33 @@ class CollaborationService {
 
   private notifyCollaborators() {
     if (this.onCollaboratorsCallback) {
-      this.onCollaboratorsCallback(Array.from(this.activeCollaborators.values()));
+      const list = Array.from(this.activeCollaborators.values());
+      this.onCollaboratorsCallback(list);
     }
   }
 
   public leave() {
-    if (this.localUser) {
-      this.broadcastMessage({
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    if (this.cleanupInterval) clearInterval(this.cleanupInterval);
+
+    if (this.localUser && this.roomId) {
+      const leaveMsg: CollaborationMessage = {
         type: 'USER_LEAVE',
         sender: this.localUser,
         timestamp: Date.now(),
-      });
+      };
+      const topic = `notion_p2p/${this.roomId}/presence`;
+      this.publishMessage(topic, leaveMsg);
+      this.broadcastLocal(leaveMsg);
     }
 
-    this.connections.forEach((c) => c.close());
-    this.connections.clear();
-
-    if (this.peer) {
-      this.peer.destroy();
-      this.peer = null;
+    if (this.client) {
+      try {
+        this.client.end(true);
+      } catch (e) {
+        // Ignorar
+      }
+      this.client = null;
     }
 
     this.roomId = null;

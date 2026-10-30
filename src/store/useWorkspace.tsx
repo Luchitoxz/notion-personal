@@ -32,6 +32,7 @@ interface WorkspaceContextType {
 
 const STORAGE_KEY_PAGES = 'notion_personal_pages_v1';
 const STORAGE_KEY_SETTINGS = 'notion_personal_settings_v1';
+const STORAGE_KEY_ROOM = 'notion_personal_room_v1';
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
   theme: 'light',
@@ -99,12 +100,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const isSyncingFromRemoteRef = useRef(false);
 
-  // Auto-connect if URL has ?room=...
+  // Auto-connect if URL has ?room=... or from previous session
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
     if (roomParam) {
       startCollaboration(roomParam, false);
+    } else {
+      const savedRoom = localStorage.getItem(STORAGE_KEY_ROOM);
+      if (savedRoom) {
+        startCollaboration(savedRoom, false);
+      }
     }
   }, []);
 
@@ -121,6 +127,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const startCollaboration = (newRoomId: string, isHost: boolean) => {
+    const cleanRoomId = newRoomId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    if (!cleanRoomId) return;
+
     const localUser: Collaborator = {
       id: 'user-' + Math.random().toString(36).slice(2, 8),
       name: settings.userName || (isHost ? 'Anfitrión' : 'Amigo'),
@@ -130,18 +139,29 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       lastActive: Date.now(),
     };
 
-    setRoomId(newRoomId);
+    setRoomId(cleanRoomId);
     setIsCollaborating(true);
 
+    try {
+      localStorage.setItem(STORAGE_KEY_ROOM, cleanRoomId);
+      // Synchronize URL with room parameter for easy sharing/bookmarking
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', cleanRoomId);
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) {
+      // ignore
+    }
+
+    collaboration.setLatestPages(pages);
     collaboration.init(
-      newRoomId,
+      cleanRoomId,
       isHost,
       localUser,
       handleRemotePagesSync,
       handleCollaboratorsUpdate
     );
 
-    // If host, announce initial pages
+    // Announce initial pages if host
     if (isHost) {
       collaboration.broadcastPagesUpdate(pages);
     }
@@ -153,10 +173,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setIsCollaborating(false);
     setCollaborators([]);
 
-    // Clear URL param if present
-    const url = new URL(window.location.href);
-    url.searchParams.delete('room');
-    window.history.replaceState({}, '', url.toString());
+    try {
+      localStorage.removeItem(STORAGE_KEY_ROOM);
+      // Clear URL param
+      const url = new URL(window.location.href);
+      url.searchParams.delete('room');
+      window.history.replaceState({}, '', url.toString());
+    } catch (e) {
+      // ignore
+    }
   };
 
   // Save pages to localStorage & broadcast if collaborating
@@ -167,6 +192,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error('Error saving pages:', e);
     }
 
+    collaboration.setLatestPages(pages);
     if (isCollaborating && !isSyncingFromRemoteRef.current) {
       collaboration.broadcastPagesUpdate(pages);
     }

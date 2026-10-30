@@ -171,17 +171,27 @@ export const Editor: React.FC = () => {
             onClick={() => setIsShareOpen(true)}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-colors ${
               isCollaborating
-                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700/60'
+                ? collaborators.length > 1
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700/60'
+                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700/60'
                 : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
             }`}
             title="Compartir y colaborar en tiempo real con un amigo"
           >
             <Users size={14} />
             <span className="hidden sm:inline">
-              {isCollaborating ? `En sala (${collaborators.length})` : 'Compartir'}
+              {isCollaborating
+                ? collaborators.length > 1
+                  ? `Juntos en vivo (${collaborators.length})`
+                  : 'Esperando amigo...'
+                : 'Conectar amigo'}
             </span>
             {isCollaborating && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span
+                className={`w-2 h-2 rounded-full animate-pulse ${
+                  collaborators.length > 1 ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+              />
             )}
           </button>
 
