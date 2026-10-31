@@ -47,6 +47,8 @@ export interface TableData {
   columns: string[];
   rows: string[][];
   showCalculations?: boolean;
+  columnWidths?: number[];
+  wrapCells?: boolean;
 }
 
 export interface FileData {
